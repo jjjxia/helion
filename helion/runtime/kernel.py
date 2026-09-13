@@ -91,6 +91,7 @@ if TYPE_CHECKING:
     from .._compiler.host_function import HostFunction
     from ..autotuner import ConfigSpec
     from ..autotuner.base_cache import BoundKernelInMemoryCacheKey
+    from .artifact_cache import ArtifactCacheHit
 
     ConfigLike = Config | dict[str, object]
 
@@ -870,6 +871,9 @@ class Kernel(Generic[_R]):
         # skipping the full specialization-key machinery on repeat calls.
         self._dispatch_cache: dict[Hashable, BoundKernel] = {}
         self._prepared_call: _PreparedCall | None = None
+        self._artifact_cache_hits: dict[str, ArtifactCacheHit] = {}
+        self._artifact_cache_prepared: ArtifactCacheHit | None = None
+        self._artifact_cache_generation = 0
         self._specialize_extra: dict[
             Hashable, list[Callable[[Sequence[object]], Hashable]]
         ] = {}
@@ -2015,6 +2019,33 @@ class Kernel(Generic[_R]):
                             run = None
                     if run is not None:
                         return run(*args)
+        artifact_cache_enabled = os.environ.get(
+            "HELION_KERNEL_ARTIFACT_CACHE", ""
+        ).strip().lower() not in {"", "0", "false"} and os.environ.get(
+            "HELION_SKIP_CACHE", ""
+        ).strip().lower() in {"", "0", "false"}
+        if (
+            not is_compiling
+            and artifact_cache_enabled
+            and (artifact_prepared := self._artifact_cache_prepared) is not None
+            and artifact_prepared.matches(self, args)
+        ):
+            return cast("Callable[..., _R]", artifact_prepared.run)(*args)
+        artifact_request = None
+        if not is_compiling and artifact_cache_enabled:
+            from .artifact_cache import load as load_artifact
+            from .artifact_cache import prepare_request as prepare_artifact_request
+
+            artifact_request = prepare_artifact_request(self, args)
+            if artifact_request is not None:
+                artifact_hit = self._artifact_cache_hits.get(artifact_request.key)
+                if artifact_hit is None:
+                    artifact_hit = load_artifact(self, artifact_request)
+                    if artifact_hit is not None:
+                        self._artifact_cache_hits[artifact_request.key] = artifact_hit
+                if artifact_hit is not None:
+                    self._artifact_cache_prepared = artifact_hit
+                    return cast("Callable[..., _R]", artifact_hit.run)(*args)
         if self.settings.backend == "pallas" and _TPU_COMPILE_CAPTURE:
             # Local import: _tpu_compile_capture pulls in the dynamo HOP machinery,
             # not ready when kernel.py first loads during ``import helion``.
@@ -2052,6 +2083,10 @@ class Kernel(Generic[_R]):
                             bound._dispatch_generation = (
                                 fast_entry.specialization_generation
                             )
+        if artifact_request is not None:
+            from .artifact_cache import store as store_artifact
+
+            store_artifact(self, bound, artifact_request)
         return result
 
     def reset(self) -> None:
@@ -2063,6 +2098,9 @@ class Kernel(Generic[_R]):
             self._bound_kernels.clear()
             self._dispatch_cache.clear()
             self._prepared_call = None
+            self._artifact_cache_hits.clear()
+            self._artifact_cache_prepared = None
+            self._artifact_cache_generation += 1
             # Specialization extractors are discovered by tracing the host
             # function and can change after an explicit reset. Keeping the old
             # schema could hide newly discovered hl.specialize() calls.

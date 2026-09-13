@@ -20,6 +20,14 @@ runs on the same machine can reuse prior configs.  For more on
 caching see {py:class}`~helion.autotuner.local_cache.LocalAutotuneCache`
 and {py:class}`~helion.autotuner.local_cache.StrictLocalAutotuneCache`.
 
+For fixed-config eager Triton/CUDA deployments, the experimental generated-kernel
+cache can also skip Helion frontend compilation and code generation across
+processes. Enable it with `HELION_KERNEL_ARTIFACT_CACHE=1`. Its first version is
+intentionally exact and conservative: it requires one explicit config and a
+strict match on compiler/source, hardware, settings, config, and complete input
+metadata. Unsupported workloads fall back to normal compilation. The cache is
+disabled by default and `HELION_SKIP_CACHE=1` bypasses both its reads and writes.
+
 The rest of this document covers strategies for pre-tuning and deploying
 tuned configs, which is the recommended approach for production workloads.
 

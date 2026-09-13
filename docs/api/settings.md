@@ -296,8 +296,9 @@ def my_kernel(x: torch.Tensor) -> torch.Tensor:
 
 Helion stores the best-performing configs discovered during autotuning in an on-disk cache so subsequent runs can skip the search.
 
-- `HELION_CACHE_DIR`: Override the directory used to store cache entries. Defaults to PyTorch’s `torch._inductor` cache path (typically `/tmp/torchinductor_$USER/helion`).
-- `HELION_SKIP_CACHE`: Set to `1` to skip both reading and writing the autotuning cache. Useful for one-off experiments that should not affect cached state. To re-tune and save the result, use `HELION_FORCE_AUTOTUNE=1` instead.
+- `HELION_CACHE_DIR`: Override the directory used to store Helion cache entries. Defaults to PyTorch’s `torch._inductor` cache path (typically `/tmp/torchinductor_$USER/helion`).
+- `HELION_KERNEL_ARTIFACT_CACHE`: Set to `1` to enable the experimental persistent generated-kernel cache. For eligible eager Triton/CUDA kernels with one explicit config, a successful first call stores the complete generated module. An exact specialization in a later process can load that module before binding, skipping Helion frontend compilation and code generation. The first version deliberately bypasses distributed kernels, autotuned/multi-config kernels, unsupported input containers, and content-dependent runtime specializations. Entries use strict compiler/source/hardware/settings/config/input metadata guards and are stored under `HELION_CACHE_DIR/kernel_artifacts`.
+- `HELION_SKIP_CACHE`: Set to `1` to skip both reading and writing the autotuning and generated-kernel caches. Useful for one-off experiments that should not affect cached state. To re-tune and save the result, use `HELION_FORCE_AUTOTUNE=1` instead.
 - `TRITON_STORE_BINARY_ONLY`: During autotuning, Helion sets this Triton environment variable to `1` by default, skipping storage of intermediate representations (`.ttir`, `.ttgir`, `.llir`, etc.) and keeping only compiled binaries and metadata. This reduces Triton cache disk usage by approximately 40%. To retain IRs for debugging, set `TRITON_STORE_BINARY_ONLY=0` before running.
 - `HELION_KEEP_CACHE`: Set to `1` to keep the backend compile-cache entries for all candidate configs evaluated during autotuning. By default, Helion uses an ephemeral cache directory during autotuning (`TRITON_CACHE_DIR` for the Triton backend, `CUTE_DSL_CACHE_DIR` for the CuTe backend) and only preserves the winning config's cache entry, avoiding significant disk bloat. Enable this if you need to inspect the compiled artifacts of non-winning configs for debugging. (`HELION_KEEP_TRITON_CACHE` is a deprecated alias that still works for the Triton backend.)
 
@@ -395,8 +396,9 @@ Built-in values for ``HELION_AUTOTUNER`` include ``"LFBOTreeSearch"`` (default),
 | ``HELION_AUTOTUNE_IGNORE_ERRORS`` | ``autotune_ignore_errors`` | Continue autotuning even when recoverable runtime errors occur. |
 | ``HELION_AUTOTUNE_CONFIG_OVERRIDES`` | ``autotune_config_overrides`` | Supply JSON forcing particular autotuner config key/value pairs. |
 | ``TRITON_STORE_BINARY_ONLY`` | Triton (autotuning) | Set to ``1`` during autotuning to skip Triton intermediate IRs, reducing cache size ~40%. Set to ``0`` to retain IRs for debugging. |
-| ``HELION_CACHE_DIR`` | ``LocalAutotuneCache`` | Override the on-disk directory used for cached autotuning artifacts. |
-| ``HELION_SKIP_CACHE`` | ``LocalAutotuneCache`` | When set to ``1``, skip both reading and writing the autotuning cache entirely. |
+| ``HELION_CACHE_DIR`` | all Helion caches | Override the on-disk directory used for Helion cache artifacts. |
+| ``HELION_KERNEL_ARTIFACT_CACHE`` | generated-kernel cache | Opt in to strict, exact-specialization, pre-bind reuse of generated Triton/CUDA modules for eager kernels with one explicit config. Default is disabled. |
+| ``HELION_SKIP_CACHE`` | all Helion caches | When set to ``1``, skip both reading and writing the autotuning and generated-kernel caches entirely. |
 | ``HELION_ASSERT_CACHE_HIT`` | ``AutotuneCacheBase`` | When set to ``1``, require a cache hit; raises ``CacheAssertionError`` on cache miss with detailed diagnostics. |
 | ``HELION_AUTOTUNE_CACHE`` | ``autotune_cache`` | Cache class to use (``"LocalAutotuneCache"`` (default), ``"StrictLocalAutotuneCache"``, ``"RemoteAutotuneCache"``, ``"StrictRemoteAutotuneCache"``, ``"AOTAutotuneCache"``). |
 | ``HELION_REMOTE_CACHE_BACKEND`` | (used by ``RemoteAutotuneCache`` and warm-start) | Fully-qualified class path to a ``RemoteCacheBackend`` subclass (e.g. ``mypackage.cache.RedisBackend``); enables remote read-through/write-through caching and, when the backend overrides ``list()``, remote warm-start lookups for ``from_best_available`` / ``helion.from_cache``. |
